@@ -49,7 +49,7 @@ class MiniMindOMTPHead(nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Generate logits for all 8 layers.
 
         Args:
@@ -79,7 +79,7 @@ class MiniMindOTalkerEmbedding(nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Embed 8-layer codes and average across layers.
 
         Args:

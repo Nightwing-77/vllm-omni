@@ -112,11 +112,10 @@ class MiniMindOThinkerConfig(PretrainedConfig):
         self.vision_end_token_id = None
         self.seconds_per_chunk = 1.0
         self.spatial_merge_size = 2
-        self.vision_config = type(
-            "VisionCfg",
-            (),
-            {"spatial_merge_size": 2, "tokens_per_second": 25},
-        )()
+        self.vision_config = {
+            "spatial_merge_size": spatial_merge_size,
+            "tokens_per_second": 25,
+        }
         self.text_config = _build_text_config(
             vocab_size=vocab_size,
             hidden_size=hidden_size,
