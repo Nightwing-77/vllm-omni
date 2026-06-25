@@ -22,6 +22,8 @@ _ARCH_TO_MODEL_TYPE: dict[str, str] = {
     "GLMTTSForConditionalGeneration": "glm_tts",
     "OmniVoiceModel": "omnivoice",
     "VoxCPM2TalkerForConditionalGeneration": "voxcpm2",
+    "MisoTTSTalkerForConditionalGeneration": "miso_tts",
+    "MisoTTSMimiDecoder": "miso_tts",
 }
 
 # Maps model architecture names to tokenizer subfolder paths within HF repos.
@@ -41,6 +43,7 @@ def _register_omni_hf_configs() -> None:
         )
         from vllm_omni.transformers_utils.configs.cosyvoice3 import CosyVoice3Config
         from vllm_omni.transformers_utils.configs.glm_tts import GLMTTSConfig
+        from vllm_omni.transformers_utils.configs.miso_tts import MisoTTSConfig
         from vllm_omni.transformers_utils.configs.omnivoice import OmniVoiceConfig
         from vllm_omni.transformers_utils.configs.voxcpm2 import VoxCPM2Config
     except Exception as exc:  # pragma: no cover - best-effort optional registration
@@ -62,6 +65,7 @@ def _register_omni_hf_configs() -> None:
         ("glm_tts", GLMTTSConfig),
         ("omnivoice", OmniVoiceConfig),
         ("voxcpm2", VoxCPM2Config),
+        ("miso_tts", MisoTTSConfig),
     ]:
         try:
             AutoConfig.register(model_type, config_cls)
