@@ -19,7 +19,7 @@ import torch
 import torch.nn.functional as F
 
 # Add official Miso TTS repo to path
-OFFICIAL_REPO_PATH = r"d:\Vllm-Omni\vllm-omni\vllm_omni\model_executor\models\miso_tts\MisoTTS"
+OFFICIAL_REPO_PATH = os.path.join(os.path.dirname(__file__), "MisoTTS")
 if OFFICIAL_REPO_PATH not in sys.path:
     sys.path.insert(0, OFFICIAL_REPO_PATH)
 
