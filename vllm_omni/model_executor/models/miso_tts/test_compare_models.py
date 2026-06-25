@@ -142,7 +142,8 @@ def test_generate_frame() -> None:
     official_model.setup_caches(1)
     vllm_model.setup_caches(1, dtype)
     
-    # Create test input
+    # Create test input - use fixed seed for reproducibility
+    torch.manual_seed(42)
     batch_size = 1
     seq_len = 10
     num_codebooks = 32
@@ -150,6 +151,11 @@ def test_generate_frame() -> None:
     tokens = torch.randint(0, 2051, (batch_size, seq_len, num_codebooks + 1)).to(device)
     tokens_mask = torch.ones(batch_size, seq_len, num_codebooks + 1, dtype=torch.bool).to(device)
     input_pos = torch.arange(seq_len).unsqueeze(0).to(device)
+    
+    print(f"Input tokens shape: {tokens.shape}")
+    print(f"Input tokens dtype: {tokens.dtype}")
+    print(f"Input tokens device: {tokens.device}")
+    print(f"Input tokens sample: {tokens[0, 0, :5]}")
     
     temperature = 0.9
     topk = 50
@@ -159,10 +165,18 @@ def test_generate_frame() -> None:
     with torch.inference_mode():
         official_frame = official_model.generate_frame(tokens, tokens_mask, input_pos, temperature, topk)
     
+    print(f"Official frame shape: {official_frame.shape}")
+    print(f"Official frame dtype: {official_frame.dtype}")
+    print(f"Official frame sample: {official_frame[0, :5]}")
+    
     # Generate frame with vLLM model
     print("Generating frame with vLLM model...")
     with torch.inference_mode():
         vllm_frame = vllm_model.generate_frame(tokens, tokens_mask, input_pos, temperature, topk)
+    
+    print(f"vLLM frame shape: {vllm_frame.shape}")
+    print(f"vLLM frame dtype: {vllm_frame.dtype}")
+    print(f"vLLM frame sample: {vllm_frame[0, :5]}")
     
     # Compare outputs
     compare_tensors("Generated Frame", official_frame, vllm_frame, threshold=0.95)

@@ -100,9 +100,6 @@ def _build_prompt(
         fr = torch.zeros(len(ids), fs).long()
         mk = torch.zeros(len(ids), fs).bool()
         fr[:, -1] = torch.tensor(ids)
-        fr = torch.zeros(len(ids), fs).long()
-        mk = torch.zeros(len(ids), fs).bool()
-        fr[:, -1] = torch.tensor(ids)
         mk[:, -1] = True
         parts_t.append(fr.to(device))
         parts_m.append(mk.to(device))
@@ -110,8 +107,6 @@ def _build_prompt(
     def audio_seg(audio: torch.Tensor) -> None:
         codes = mimi.encode(audio.unsqueeze(0).unsqueeze(0))[0]
         codes = torch.cat([codes, torch.zeros(codes.size(0), 1, device=device)], dim=1)
-        fr = torch.zeros(codes.size(1), fs).long().to(device)
-        mk = torch.zeros(codes.size(1), fs).bool().to(device)
         fr = torch.zeros(codes.size(1), fs).long().to(device)
         mk = torch.zeros(codes.size(1), fs).bool().to(device)
         fr[:, :-1] = codes.transpose(0, 1)
