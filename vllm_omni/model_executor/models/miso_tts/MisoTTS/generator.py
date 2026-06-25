@@ -167,10 +167,10 @@ class Generator:
 
         audio = self._audio_tokenizer.decode(torch.stack(samples).permute(1, 2, 0)).squeeze(0).squeeze(0)
 
-        # This applies an imperceptible watermark to identify audio as AI-generated.
-        # If using Miso TTS in another application, use your own private key and keep it secret.
+        # Watermarking disabled - returns audio unchanged
         audio, wm_sample_rate = watermark(self._watermarker, audio, self.sample_rate, MISO_TTS_WATERMARK)
-        audio = torchaudio.functional.resample(audio, orig_freq=wm_sample_rate, new_freq=self.sample_rate)
+        if wm_sample_rate != self.sample_rate:
+            audio = torchaudio.functional.resample(audio, orig_freq=wm_sample_rate, new_freq=self.sample_rate)
 
         return audio
 
