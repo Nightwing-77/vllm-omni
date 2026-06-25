@@ -23,6 +23,10 @@ from vllm.logger import init_logger
 from vllm.utils.mem_utils import DeviceMemoryProfiler, GiB_bytes
 
 from vllm_omni.diffusion.cache.cache_dit_backend import cache_summary
+from vllm_omni.diffusion.cache.prompt_embed_cache import (
+    install_prompt_embed_cache,
+    resolve_prompt_embed_cache_config,
+)
 from vllm_omni.diffusion.cache.selector import get_cache_backend
 from vllm_omni.diffusion.compile import regionally_compile
 from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
@@ -71,6 +75,7 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
         self.pipeline = None
         self.cache_backend = None
         self.offload_backend = None
+        self.prompt_embed_cache = None
 
         # Cache for per-request stepwise state.
         self.state_cache: dict[str, DiffusionRequestState] = {}
@@ -96,7 +101,7 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
     def load_model(
         self,
         memory_pool_context_fn: callable | None = None,
-        load_format: str | None = None,
+        load_format: str = "default",
         custom_pipeline_name: str | None = None,
     ) -> None:
         """
@@ -133,7 +138,6 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
         with get_memory_context():
             with DeviceMemoryProfiler() as m:
                 self.pipeline = model_loader.load_model(
-                    od_config=self.od_config,
                     load_device=load_device,
                     load_format=load_format,
                     custom_pipeline_name=custom_pipeline_name,
@@ -164,8 +168,17 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
         # Apply torch.compile if not in eager mode
         if not self.od_config.enforce_eager:
             if current_omni_platform.supports_torch_inductor():
-                self._compile_transformer("transformer")
-                self._compile_transformer("transformer_2")
+                if hasattr(self.pipeline, "setup_compile"):
+                    try:
+                        self.pipeline.setup_compile()
+                    except Exception as exc:
+                        logger.warning(
+                            "Model runner: setup_compile() failed (%s); running without compile.",
+                            exc,
+                        )
+                else:
+                    self._compile_transformer("transformer")
+                    self._compile_transformer("transformer_2")
             else:
                 logger.warning(
                     "Model runner: Platform %s does not support torch inductor, skipping torch.compile.",
@@ -187,11 +200,37 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
             else:
                 self.cache_backend.enable(self.pipeline)
 
+        # Install prompt-embedding cache (transparent wrapper around
+        # ``pipeline.encode_prompt``). Enabled via config or env var; a no-op
+        # when the pipeline does not expose ``encode_prompt``.
+        enable_pec, pec_size = resolve_prompt_embed_cache_config(
+            enable=getattr(self.od_config, "enable_prompt_embed_cache", False),
+            max_size=getattr(self.od_config, "prompt_embed_cache_size", 32),
+        )
+        if enable_pec:
+            self.prompt_embed_cache = install_prompt_embed_cache(
+                self.pipeline,
+                max_size=pec_size,
+                enabled=True,
+                model_tag=self.od_config.model_class_name,
+            )
+
         logger.info("Model runner: Initialization complete.")
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         """Load weights into the pipeline."""
         return self.pipeline.load_weights(weights)
+
+    def clear_prompt_embed_cache(self) -> None:
+        """Evict all cached text-encoder outputs (e.g. between training epochs)."""
+        if self.prompt_embed_cache is not None:
+            self.prompt_embed_cache.clear()
+
+    def get_prompt_embed_cache_stats(self) -> dict | None:
+        """Return hit/miss statistics for the prompt-embedding cache, if enabled."""
+        if self.prompt_embed_cache is None:
+            return None
+        return self.prompt_embed_cache.stats()
 
     def _record_peak_memory(self, output: DiffusionOutput) -> None:
         """Record peak GPU memory for the current forward pass into output.
@@ -276,8 +315,15 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
                 # num_inference_steps at all (i.e., just resets state and clears
                 # stale residuals).
                 num_inference_steps = req.sampling_params.num_inference_steps
-                if self.od_config.cache_backend == "tea_cache" and num_inference_steps is None:
-                    num_inference_steps = 0
+                if num_inference_steps is None and self.od_config.cache_backend in (
+                    "tea_cache",
+                    "step_cache",
+                ):
+                    # TeaCache refresh ignores the value; step_cache refresh is a
+                    # no-op (per-chunk state resets in the denoise loop). DreamZero often
+                    # leaves sampling_params.num_inference_steps unset and uses the
+                    # pipeline default instead.
+                    num_inference_steps = getattr(self.pipeline, "num_inference_steps", 0) or 0
 
                 if num_inference_steps is not None:
                     self.cache_backend.refresh(self.pipeline, num_inference_steps)
@@ -298,6 +344,10 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
 
             if is_primary:
                 self._record_peak_memory(output)
+
+            # Log prompt-embed cache activity (hits/misses accumulate across requests).
+            if is_primary and self.prompt_embed_cache is not None:
+                logger.debug("prompt-embed cache: %s", self.prompt_embed_cache.stats())
 
             # NOTE:
             if (
@@ -339,6 +389,13 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
                     request_id=request_id,
                     sampling=copy.deepcopy(req.sampling_params),
                     prompts=req.prompts,
+                )
+                state_req = copy.copy(req)
+                state_req.sampling_params = new_state.sampling
+                self.kv_transfer_manager.receive_multi_kv_cache_distributed(
+                    state_req,
+                    cfg_kv_collect_func=getattr(self.od_config, "cfg_kv_collect_func", None),
+                    target_device=getattr(self.pipeline, "device", None),
                 )
                 self.state_cache[request_id] = new_state
                 resolved.append(new_state)
@@ -418,8 +475,8 @@ class DiffusionModelRunner(OmniConnectorModelRunnerMixin):
         if not self.supports_step_mode():
             raise ValueError("Current pipeline does not support step execution.")
         # Stepwise mode only supports the basic state-driven denoise path for now.
-        # Request-mode extras such as cache backends, KV transfer, editing inputs,
-        # and similar features are not supported here yet.
+        # Request-mode extras such as cache backends, editing inputs, and
+        # similar features are not supported here yet.
         if self.od_config.cache_backend not in (None, "none"):
             raise ValueError("Step mode does not support cache_backend yet.")
 

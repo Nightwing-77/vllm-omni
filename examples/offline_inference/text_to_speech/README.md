@@ -17,8 +17,10 @@ list of supported architectures across all modalities, see
 | CosyVoice3 | `FunAudioLLM/Fun-CosyVoice3-0.5B-2512` | 2 (talker + code2wav) | ✓ | ✓ | — | 24 kHz |
 | Fish Speech S2 Pro | `fishaudio/s2-pro` | dual-AR | ✓ | ✓ | — | 44.1 kHz |
 | GLM-TTS | `zai-org/GLM-TTS` | 2 (AR + DiT) | ✓ (required) | ✓ | — | 24 kHz |
+| Ming-omni-tts | `inclusionAI/Ming-omni-tts-0.5B` | 2 (AR + audio VAE) | ✓ | ✓ | style / IP / dialect / TTA / podcast | 44.1 kHz |
 | Ming-flash-omni-TTS | `Jonathan1909/Ming-flash-omni-2.0` | single (talker only) | — (caption-controlled) | — | style / IP / basic captions | 44.1 kHz |
 | MOSS-TTS-Nano | `OpenMOSS-Team/MOSS-TTS-Nano` | single (AR + codec) | ✓ (required) | ✓ | voice_clone, continuation | 48 kHz |
+| Miso TTS | `MisoLabs/MisoTTS` | 2 (talker + Mimi) | — (speaker id) | ✓ | multi-speaker ids | 24 kHz |
 | OmniVoice | `k2-fsa/OmniVoice` | 2 (gen + dec) | ✓ | — | voice design, language hint | 24 kHz |
 | Qwen3-TTS | `Qwen/Qwen3-TTS-12Hz-1.7B-{CustomVoice,VoiceDesign,Base}` | 2 (talker + code2wav) | ✓ (Base) | ✓ | 3 task variants | 24 kHz |
 | VoxCPM2 | `openbmb/VoxCPM2` | single (native AR) | ✓ | ✓ (online) | continuation | 48 kHz |
@@ -159,6 +161,46 @@ Streaming requires `async_chunk: true` in the stage config.
 
 ---
 
+## Ming-omni-tts
+
+Dense 0.5B two-stage TTS pipeline (`AR + flow` + audio VAE) at 44.1 kHz. The example covers style, IP voice, music-only generation, text-to-audio events, emotion, dialect, zero-shot cloning, podcast, speech+BGM, and speech+environment-sound cases.
+
+### Quick start
+```bash
+python examples/offline_inference/text_to_speech/ming_tts/end2end.py \
+    --case style \
+    --deploy-config vllm_omni/deploy/ming_tts.yaml \
+    --enforce-eager
+```
+
+### Voice cloning
+```bash
+python examples/offline_inference/text_to_speech/ming_tts/end2end.py \
+    --case zero_shot \
+    --ref-audio /path/to/reference.wav \
+    --ref-text "在此奉劝大家别乱打美白针。" \
+    --deploy-config vllm_omni/deploy/ming_tts.yaml \
+    --enforce-eager
+```
+
+### Streaming
+```bash
+python examples/offline_inference/text_to_speech/ming_tts/end2end.py \
+    --case basic \
+    --ref-audio /path/to/reference.wav \
+    --streaming \
+    --deploy-config vllm_omni/deploy/ming_tts.yaml \
+    --enforce-eager
+```
+
+### Notes
+- `style`, `ip`, `bgm`, and `tta` do not require reference audio.
+- Reference-audio cases use `--ref-audio`; `zero_shot` also requires `--ref-text`.
+- `podcast` uses multiple references via `--ref-audio-paths`.
+- Full case details live in [`ming_tts/README.md`](ming_tts/README.md).
+
+---
+
 ## Ming-flash-omni-TTS
 
 Standalone talker-only deployment of Ming-flash-omni-2.0 at 44.1 kHz. Voice is controlled through caption fields (`风格` / `IP` / `语速`/`基频`/`音量`) rather than reference audio.
@@ -229,6 +271,32 @@ python examples/offline_inference/text_to_speech/moss_tts_nano/end2end.py \
 
 ---
 
+## Miso TTS
+
+Single-stage 8B Llama3.2 backbone + 300M codebook decoder (talker stage), then Mimi codec decode (stage 1) at 24 kHz with ``async_chunk`` streaming like Qwen3-TTS.
+
+### Prerequisites
+```bash
+pip install moshi safetensors
+uv pip install -e .
+```
+
+### Quick start
+```bash
+python examples/offline_inference/text_to_speech/miso_tts/end2end.py \
+    --text "I'm just honestly not that into him, you know?" \
+    --speaker 0 \
+    --output miso_out.wav
+```
+
+### Notes
+- Deploy config: `vllm_omni/deploy/miso_tts.yaml` (sets `hf_overrides` when the HF repo lacks `config.json`).
+- Default `--max-generation-frames 125` ≈ 10 s of audio (80 ms per frame).
+- Online serving: pass OpenAI `voice` as the speaker id string (`"0"`, `"1"`).
+- Optional multi-turn context can be supplied offline via `additional_information["context"]` (list of `{text, speaker, audio}`).
+
+---
+
 ## OmniVoice
 
 Zero-shot multilingual TTS supporting 600+ languages, with three modes (auto / clone / design).
@@ -269,6 +337,14 @@ python examples/offline_inference/text_to_speech/omnivoice/end2end.py \
     --model k2-fsa/OmniVoice \
     --text "你好，这是一个测试。" \
     --lang zh
+```
+
+### Seed for Reproducibility
+```bash
+python examples/offline_inference/text_to_speech/omnivoice/end2end.py \
+    --model k2-fsa/OmniVoice \
+    --text "Hello, this is a test." \
+    --seed 42
 ```
 
 ### Notes

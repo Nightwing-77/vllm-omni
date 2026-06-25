@@ -1,0 +1,27 @@
+# Miso TTS single-stage deploy - integrates talker and Mimi decoder in one model.
+# Prerequisites: pip install moshi safetensors
+async_chunk: false
+trust_remote_code: true
+
+stages:
+  - stage_id: 0
+    max_num_seqs: 2
+    gpu_memory_utilization: 0.9
+    enforce_eager: true
+    enable_prefix_caching: false
+    max_num_batched_tokens: 512
+    max_model_len: 2048
+    devices: "0"
+    skip_mm_profiling: true
+    # The HF repo tokenizer is invalid; use Llama 3.2 1B tokenizer for request parsing.
+    tokenizer: meta-llama/Llama-3.2-1B
+    hf_overrides:
+      model_type: miso_tts_single_stage
+      architectures:
+        - MisoTTSSingleStageForVLLM
+    default_sampling_params:
+      temperature: 0.9
+      top_k: 50
+      max_tokens: 1125
+      seed: 42
+      detokenize: false
