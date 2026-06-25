@@ -294,8 +294,9 @@ def test_full_generation() -> None:
     official_audio_path = os.path.join(output_dir, "official_miso_tts.wav")
     vllm_audio_path = os.path.join(output_dir, "vllm_miso_tts.wav")
     
-    torchaudio.save(official_audio_path, official_audio.unsqueeze(0), official_gen.sample_rate)
-    torchaudio.save(vllm_audio_path, vllm_audio.unsqueeze(0), vllm_mimi.sample_rate)
+    # Move to CPU before saving (torchaudio.save requires CPU tensors)
+    torchaudio.save(official_audio_path, official_audio.unsqueeze(0).cpu(), official_gen.sample_rate)
+    torchaudio.save(vllm_audio_path, vllm_audio.unsqueeze(0).cpu(), vllm_mimi.sample_rate)
     
     print(f"\n✅ Saved official audio to: {official_audio_path}")
     print(f"✅ Saved vLLM audio to: {vllm_audio_path}")
