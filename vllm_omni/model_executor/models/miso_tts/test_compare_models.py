@@ -39,8 +39,8 @@ def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
     """Compute cosine similarity between two tensors."""
     if a.shape != b.shape:
         return -1.0
-    a_flat = a.flatten()
-    b_flat = b.flatten()
+    a_flat = a.flatten().float()
+    b_flat = b.flatten().float()
     return F.cosine_similarity(a_flat.unsqueeze(0), b_flat.unsqueeze(0)).item()
 
 
