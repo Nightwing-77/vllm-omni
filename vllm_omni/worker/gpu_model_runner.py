@@ -594,12 +594,16 @@ class OmniGPUModelRunner(GPUModelRunner):
                 logger.error(f"Error decoding prompt embeds: {e}")
             # Decode additional_information payloads (dictionary)
             try:
-                if getattr(new_req_data, "additional_information", None) is not None:
+                info_payload = getattr(new_req_data, "additional_information", None)
+                logger.info(f"[MisoDebug OldPath] req_id={req_id}, info_payload type={type(info_payload)}, value={info_payload}")
+                if info_payload is not None:
                     logger.warning_once(
                         "additional_information on request data is deprecated, use model_intermediate_buffer"
                     )
-                    info_dict = deserialize_additional_information(new_req_data.additional_information)
+                    info_dict = deserialize_additional_information(info_payload)
+                    logger.info(f"[MisoDebug OldPath] Deserialized info_dict for req_id={req_id}: type={type(info_dict)}, value={info_dict}")
                     if info_dict:
+                        logger.info(f"[MisoDebug OldPath] Storing in model_intermediate_buffer for req_id={req_id}: keys={list(info_dict.keys())}")
                         self.model_intermediate_buffer[req_id] = info_dict
                         setattr(
                             self.requests[req_id],
@@ -1258,12 +1262,15 @@ class OmniGPUModelRunner(GPUModelRunner):
             if pe_cpu is not None:
                 setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
             info_payload = getattr(nr, "additional_information", None)
+            logger.info(f"[MisoDebug] req_id={req_id}, info_payload type={type(info_payload)}, value={info_payload}")
             if info_payload is not None:
                 logger.warning_once(
                     "additional_information on request data is deprecated, use model_intermediate_buffer"
                 )
             info_dict = deserialize_additional_information(info_payload)
+            logger.info(f"[MisoDebug] Deserialized info_dict for req_id={req_id}: type={type(info_dict)}, value={info_dict}")
             if info_dict:
+                logger.info(f"[MisoDebug] Storing in model_intermediate_buffer for req_id={req_id}: keys={list(info_dict.keys())}")
                 self.model_intermediate_buffer[req_id] = info_dict
                 setattr(self.requests[req_id], "additional_information_cpu", info_dict)
 
