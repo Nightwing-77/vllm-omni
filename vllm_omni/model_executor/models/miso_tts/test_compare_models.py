@@ -20,6 +20,9 @@ import torch.nn.functional as F
 
 # Add official Miso TTS repo to path
 OFFICIAL_REPO_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "MisoTTS"))
+print(f"Adding to sys.path: {OFFICIAL_REPO_PATH}")
+print(f"Path exists: {os.path.exists(OFFICIAL_REPO_PATH)}")
+print(f"Files in MisoTTS: {os.listdir(OFFICIAL_REPO_PATH) if os.path.exists(OFFICIAL_REPO_PATH) else 'N/A'}")
 if OFFICIAL_REPO_PATH not in sys.path:
     sys.path.insert(0, OFFICIAL_REPO_PATH)
 
