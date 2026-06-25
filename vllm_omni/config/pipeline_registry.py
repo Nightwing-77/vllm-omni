@@ -149,10 +149,6 @@ _OMNI_PIPELINES: dict[str, tuple[str, str]] = {
         "vllm_omni.model_executor.models.miso_tts.pipeline",
         "MISO_TTS_PIPELINE",
     ),
-    "miso_tts_single_stage": (
-        "vllm_omni.model_executor.models.miso_tts.pipeline",
-        "MISO_TTS_SINGLE_STAGE_PIPELINE",
-    ),
     "moss_tts_delay": (
         "vllm_omni.model_executor.models.moss_tts.pipeline",
         "MOSS_TTS_PIPELINE",

@@ -45,23 +45,3 @@ MISO_TTS_PIPELINE = PipelineConfig(
         ),
     ),
 )
-
-MISO_TTS_SINGLE_STAGE_PIPELINE = PipelineConfig(
-    model_type="miso_tts",
-    model_arch="MisoTTSSingleStageForVLLM",
-    stages=(
-        StagePipelineConfig(
-            stage_id=0,
-            model_stage="miso_tts",
-            execution_type=StageExecutionType.LLM_AR,
-            input_sources=(),
-            owns_tokenizer=False,
-            final_output=True,
-            final_output_type="audio",
-            engine_output_type="audio",
-            sampling_constraints={
-                "detokenize": False,
-            },
-        ),
-    ),
-)
