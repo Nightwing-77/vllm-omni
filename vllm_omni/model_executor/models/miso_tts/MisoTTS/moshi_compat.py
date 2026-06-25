@@ -7,6 +7,11 @@ from moshi.utils import quantize
 
 
 def patch_bitsandbytes_import_for_unquantized_layers() -> None:
+    # Handle version mismatch in moshi library
+    if not hasattr(quantize, 'linear'):
+        # Newer moshi version doesn't have these attributes, skip patching
+        return
+    
     original_linear = quantize.linear
     original_multi_linear = quantize.multi_linear
 
