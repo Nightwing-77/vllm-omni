@@ -116,6 +116,137 @@ def test_model_architecture() -> None:
         print("✅ Layer names match")
 
 
+def test_backbone_and_decoder_outputs() -> None:
+    """Test backbone and decoder outputs separately to isolate where divergence occurs."""
+    print("\n" + "="*60)
+    print("TESTING BACKBONE AND DECODER OUTPUTS SEPARATELY")
+    print("="*60)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dtype = torch.float16 if device.type == "cuda" else torch.float32
+    
+    # Load official model
+    print("Loading official Miso TTS...")
+    official_gen = load_miso_8b(device=device, dtype=dtype)
+    official_model = official_gen._model
+    
+    # Load vLLM model
+    print("Loading vLLM-Omni Miso TTS...")
+    vllm_model = load_miso_model_weights("MisoLabs/MisoTTS", device, dtype)
+    
+    # Setup caches
+    official_model.setup_caches(1)
+    vllm_model.setup_caches(1, dtype)
+    
+    # Create test input
+    batch_size = 1
+    seq_len = 10
+    num_codebooks = 32
+    
+    tokens = torch.randint(0, 2051, (batch_size, seq_len, num_codebooks + 1)).to(device)
+    tokens_mask = torch.ones(batch_size, seq_len, num_codebooks + 1, dtype=torch.bool).to(device)
+    input_pos = torch.arange(seq_len).unsqueeze(0).to(device)
+    
+    temperature = 0.9
+    topk = 50
+    
+    # Hook into generate_frame to capture intermediate outputs
+    print("\n--- Capturing Backbone Outputs ---")
+    
+    # Official backbone forward
+    dtype_official = next(official_model.parameters()).dtype
+    curr_backbone_mask_official = official_model._index_causal_mask(official_model.backbone_causal_mask, input_pos)
+    embeds_official = official_model._embed_tokens(tokens)
+    masked_embeds_official = embeds_official * tokens_mask.unsqueeze(-1)
+    h_official = masked_embeds_official.sum(dim=2)
+    h_official = official_model.backbone(h_official, input_pos=input_pos, mask=curr_backbone_mask_official).to(dtype=dtype_official)
+    
+    # vLLM backbone forward
+    dtype_vllm = next(vllm_model.parameters()).dtype
+    curr_backbone_mask_vllm = vllm_model._index_causal_mask(vllm_model.backbone_causal_mask, input_pos)
+    embeds_vllm = vllm_model._embed_tokens(tokens)
+    masked_embeds_vllm = embeds_vllm * tokens_mask.unsqueeze(-1)
+    h_vllm = masked_embeds_vllm.sum(dim=2)
+    h_vllm = vllm_model.backbone(h_vllm, input_pos=input_pos, mask=curr_backbone_mask_vllm).to(dtype=dtype_vllm)
+    
+    # Compare backbone outputs
+    compare_tensors("Backbone Hidden States", h_official, h_vllm, threshold=0.95)
+    
+    # Compare embeddings
+    compare_tensors("Text Embeddings", embeds_official[:, :, -1], embeds_vllm[:, :, -1], threshold=0.95)
+    compare_tensors("Audio Embeddings", embeds_official[:, :, :-1], embeds_vllm[:, :, :-1], threshold=0.95)
+    
+    print("\n--- Capturing Codebook 0 Outputs ---")
+    
+    # Codebook 0
+    last_h_official = h_official[:, -1, :]
+    last_h_vllm = h_vllm[:, -1, :]
+    
+    compare_tensors("Last Backbone Hidden State", last_h_official, last_h_vllm, threshold=0.95)
+    
+    c0_logits_official = official_model.codebook0_head(last_h_official)
+    c0_logits_vllm = vllm_model.codebook0_head(last_h_vllm)
+    
+    compare_tensors("Codebook 0 Logits", c0_logits_official, c0_logits_vllm, threshold=0.95)
+    
+    # Sample codebook 0
+    c0_sample_official = official_model.sample_topk(c0_logits_official, topk, temperature)
+    c0_sample_vllm = vllm_model.sample_topk(c0_logits_vllm, topk, temperature)
+    
+    compare_tensors("Codebook 0 Sample", c0_sample_official, c0_sample_vllm, threshold=1.0)  # Should be exact match
+    
+    print("\n--- Capturing Decoder Outputs (Codebooks 1-31) ---")
+    
+    # Decoder loop - compare each codebook
+    c0_embed_official = official_model._embed_audio(0, c0_sample_official)
+    c0_embed_vllm = vllm_model._embed_audio(0, c0_sample_vllm)
+    
+    compare_tensors("Codebook 0 Embedding", c0_embed_official, c0_embed_vllm, threshold=0.95)
+    
+    curr_h_official = torch.cat([last_h_official.unsqueeze(1), c0_embed_official], dim=1)
+    curr_h_vllm = torch.cat([last_h_vllm.unsqueeze(1), c0_embed_vllm], dim=1)
+    
+    curr_sample_official = c0_sample_official.clone()
+    curr_sample_vllm = c0_sample_vllm.clone()
+    
+    curr_pos = torch.arange(0, curr_h_official.size(1), device=curr_h_official.device).unsqueeze(0).repeat(curr_h_official.size(0), 1)
+    
+    official_model.decoder.reset_caches()
+    vllm_model.decoder.reset_caches()
+    
+    for i in range(1, min(5, official_model.config.audio_num_codebooks)):  # Test first 4 codebooks
+        print(f"\n--- Codebook {i} ---")
+        
+        curr_decoder_mask_official = official_model._index_causal_mask(official_model.decoder_causal_mask, curr_pos)
+        curr_decoder_mask_vllm = vllm_model._index_causal_mask(vllm_model.decoder_causal_mask, curr_pos)
+        
+        decoder_h_official = official_model.decoder(official_model.projection(curr_h_official), input_pos=curr_pos, mask=curr_decoder_mask_official).to(dtype=dtype_official)
+        decoder_h_vllm = vllm_model.decoder(vllm_model.projection(curr_h_vllm), input_pos=curr_pos, mask=curr_decoder_mask_vllm).to(dtype=dtype_vllm)
+        
+        compare_tensors(f"Decoder Hidden State (Codebook {i})", decoder_h_official, decoder_h_vllm, threshold=0.95)
+        
+        ci_logits_official = torch.mm(decoder_h_official[:, -1, :], official_model.audio_head[i - 1])
+        ci_logits_vllm = torch.mm(decoder_h_vllm[:, -1, :], vllm_model.audio_head[i - 1])
+        
+        compare_tensors(f"Codebook {i} Logits", ci_logits_official, ci_logits_vllm, threshold=0.95)
+        
+        ci_sample_official = official_model.sample_topk(ci_logits_official, topk, temperature)
+        ci_sample_vllm = vllm_model.sample_topk(ci_logits_vllm, topk, temperature)
+        
+        compare_tensors(f"Codebook {i} Sample", ci_sample_official, ci_sample_vllm, threshold=1.0)
+        
+        ci_embed_official = official_model._embed_audio(i, ci_sample_official)
+        ci_embed_vllm = vllm_model._embed_audio(i, ci_sample_vllm)
+        
+        compare_tensors(f"Codebook {i} Embedding", ci_embed_official, ci_embed_vllm, threshold=0.95)
+        
+        curr_h_official = ci_embed_official
+        curr_h_vllm = ci_embed_vllm
+        curr_sample_official = torch.cat([curr_sample_official, ci_sample_official], dim=1)
+        curr_sample_vllm = torch.cat([curr_sample_vllm, ci_sample_vllm], dim=1)
+        curr_pos = curr_pos[:, -1:] + 1
+
+
 def test_generate_frame() -> None:
     """Test generate_frame output between both models."""
     print("\n" + "="*60)
@@ -294,6 +425,7 @@ def main() -> None:
     
     try:
         test_model_architecture()
+        test_backbone_and_decoder_outputs()
         test_generate_frame()
         test_full_generation()
         
