@@ -121,6 +121,12 @@ def _build_prompt(
 
     prompt = torch.cat(parts_t, dim=0).long()
     mask = torch.cat(parts_m, dim=0).bool()
+    
+    # Debug logging
+    logger.info(f"[MisoTalker] _build_prompt: prompt shape={prompt.shape}, mask sum={mask.sum().item()}")
+    logger.info(f"[MisoTalker] _build_prompt: prompt sample (first 5, last col)={prompt[:5, -1]}")
+    logger.info(f"[MisoTalker] _build_prompt: mask sample (first 5, last col)={mask[:5, -1]}")
+    
     if prompt.size(0) >= 2048 - max_gen_frames:
         raise ValueError("Miso prompt too long for max_seq_len - max_generation_frames")
     pos = torch.arange(prompt.size(0), device=device).unsqueeze(0).long()
@@ -249,6 +255,7 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
         s.frames_left -= 1
         is_zero_frame = bool((frame == 0).all())
         logger.info(f"[MisoTalker] Frame values: min={frame.min()}, max={frame.max()}, is_zero={is_zero_frame}, frames_left={s.frames_left}")
+        logger.info(f"[MisoTalker] Frame sample: {frame[0, :5].tolist()}")
         
         # Match official behavior: break immediately on zero frame (EOS)
         # Don't update state after zero frame to prevent garbage generation

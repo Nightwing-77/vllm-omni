@@ -199,6 +199,12 @@ def talker2mimi_async_chunk(
         return None
 
     num_frames = len(window)
+    
+    # Debug logging
+    logger.info(f"[MisoAsyncChunk] window length={num_frames}, chunk_size={chunk_size}, left_context={left_context_size}")
+    logger.info(f"[MisoAsyncChunk] first frame sample: {window[0][:5] if window else 'N/A'}")
+    logger.info(f"[MisoAsyncChunk] last frame sample: {window[-1][:5] if window else 'N/A'}")
+    
     code_tensor = torch.tensor(
         [window[f][q] for q in range(_MISO_NUM_CODEBOOKS) for f in range(num_frames)],
         dtype=torch.long,
