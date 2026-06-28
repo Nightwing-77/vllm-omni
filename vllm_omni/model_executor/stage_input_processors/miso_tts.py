@@ -49,8 +49,6 @@ def talker_preprocess_input(
     **_: Any,
 ) -> dict[str, Any]:
     """Extract additional_information (text, speaker) into runtime info for talker."""
-    logger.info(f"[MisoTalkerPreprocess] Called, request type={type(request)}, dir={dir(request)[:5]}")
-    
     if model_intermediate_buffer is None:
         logger.warning("[MisoTalkerPreprocess] model_intermediate_buffer is None")
         return {}
@@ -62,14 +60,11 @@ def talker_preprocess_input(
     if req_id is None:
         req_id = getattr(request, "external_req_id", None)
     
-    logger.info(f"[MisoTalkerPreprocess] req_id={req_id}, buffer keys={list(model_intermediate_buffer.keys()) if model_intermediate_buffer else 'None'}")
-    
     if req_id is None:
         logger.warning("[MisoTalkerPreprocess] No req_id found on request")
         return {}
     
     info = model_intermediate_buffer.get(req_id, {})
-    logger.info(f"[MisoTalkerPreprocess] Extracted info for req_id={req_id}: keys={list(info.keys())}")
     
     # Return the info dict which will be merged into runtime_additional_information
     return info
@@ -104,31 +99,21 @@ def talker2mimi(
     """Non-async: pass full codec sequence to Mimi after talker finishes."""
     from vllm_omni.inputs.data import OmniTokensPrompt
 
-    logger.info(f"[MisoFullPayloadProcess] Called with {len(source_outputs)} source_outputs")
     code2wav_inputs: list[OmniTokensPrompt] = []
-    for idx, talker_output in enumerate(source_outputs):
-        logger.info(f"[MisoFullPayloadProcess] Processing output {idx}, finished={talker_output.finished}")
+    for talker_output in source_outputs:
         if not talker_output.finished:
-            logger.info(f"[MisoFullPayloadProcess] Skipping output {idx} (not finished)")
             continue
         output = talker_output.outputs[0]
         mm = output.multimodal_output
-        logger.info(f"[MisoFullPayloadProcess] multimodal_output keys={list(mm.keys()) if mm else 'None'}")
         mm_codes = mm.get("codes", {})
         audio_codes = mm_codes.get("audio")
-        logger.info(f"[MisoFullPayloadProcess] audio_codes type={type(audio_codes)}, len={len(audio_codes) if isinstance(audio_codes, list) else 'N/A'}")
         audio_codes = _audio_codes_as_frames(audio_codes)
         if audio_codes is None:
-            logger.warning(f"[MisoFullPayloadProcess] audio_codes is None after _audio_codes_as_frames")
             continue
-        logger.info(f"[MisoFullPayloadProcess] audio_codes as frames shape={audio_codes.shape}")
         valid_mask = (audio_codes >= 0).all(dim=1) & audio_codes.any(dim=1)
         audio_codes = audio_codes[valid_mask]
-        logger.info(f"[MisoFullPayloadProcess] After valid filter shape={audio_codes.shape}")
         flat = audio_codes.transpose(0, 1).reshape(-1).tolist()
-        logger.info(f"[MisoFullPayloadProcess] flat codes length={len(flat)}")
         if not flat:
-            logger.warning(f"[MisoFullPayloadProcess] flat codes is empty")
             continue
         code2wav_inputs.append(
             OmniTokensPrompt(
@@ -138,7 +123,6 @@ def talker2mimi(
                 additional_information=None,
             )
         )
-    logger.info(f"[MisoFullPayloadProcess] Returning {len(code2wav_inputs)} inputs")
     return code2wav_inputs
 
 
@@ -159,14 +143,10 @@ def talker2mimi_async_chunk(
             transfer_manager.code_prompt_token_ids[request_id].append(frame.cpu().tolist())
         # Check done flag from talker
         done_flags = multimodal_output.get("done")
-        logger.info(f"[MisoAsyncChunk] done_flags={done_flags}, type={type(done_flags)}")
         if isinstance(done_flags, (list, tuple)) and len(done_flags) > 0:
-            logger.info(f"[MisoAsyncChunk] done_flags[0]={done_flags[0]}, bool={bool(done_flags[0])}")
             finished = finished or bool(done_flags[0])
-            logger.info(f"[MisoAsyncChunk] finished after check={finished}")
         elif hasattr(done_flags, 'item'):  # torch.Tensor
             finished = finished or bool(done_flags.item())
-            logger.info(f"[MisoAsyncChunk] finished after tensor check={finished}")
 
     connector = getattr(transfer_manager, "connector", None)
     raw_cfg = getattr(connector, "config", {}) or {}
@@ -200,17 +180,10 @@ def talker2mimi_async_chunk(
 
     num_frames = len(window)
     
-    # Debug logging
-    logger.info(f"[MisoAsyncChunk] window length={num_frames}, chunk_size={chunk_size}, left_context={left_context_size}")
-    logger.info(f"[MisoAsyncChunk] first frame sample: {window[0][:5] if window else 'N/A'}")
-    logger.info(f"[MisoAsyncChunk] last frame sample: {window[-1][:5] if window else 'N/A'}")
-    
     # Fix: Use frame-major order [T*Q] instead of codebook-major [Q*T]
     # This matches what the decoder expects in _frames_from_runtime_info
-    code_tensor = torch.tensor(
-        [window[f][q] for f in range(num_frames) for q in range(_MISO_NUM_CODEBOOKS)],
-        dtype=torch.long,
-    )
+    # Optimized: use torch operations instead of list comprehension
+    code_tensor = torch.tensor(window, dtype=torch.long).reshape(-1)
     meta = MetaStruct(
         left_context_size=left_context_size,
         codec_chunk_frames=chunk_size,
@@ -230,21 +203,16 @@ def talker2mimi_full_payload(
     request: Any,
     is_finished: bool = False,
 ) -> OmniPayloadStruct | None:
-    logger.info(f"[MisoFullPayloadConnector] Called, is_finished={is_finished}, request_finished={request.is_finished()}")
     if not is_finished and not request.is_finished():
         frame = _extract_last_frame(pooling_output) if isinstance(pooling_output, dict) else None
-        logger.info(f"[MisoFullPayloadConnector] Extracted frame: {frame.shape if frame is not None else 'None'}")
         if frame is not None:
             rid = request.external_req_id
             transfer_manager.code_prompt_token_ids[rid].append(frame.cpu().tolist())
-            logger.info(f"[MisoFullPayloadConnector] Buffered frame, total={len(transfer_manager.code_prompt_token_ids[rid])}")
         return None
 
     rid = request.external_req_id
     frames = transfer_manager.code_prompt_token_ids.get(rid, [])
-    logger.info(f"[MisoFullPayloadConnector] Finished, buffered frames={len(frames)}")
     if not frames:
-        logger.warning(f"[MisoFullPayloadConnector] No buffered frames, returning empty")
         return OmniPayloadStruct(
             codes=CodesStruct(audio=torch.empty(0, dtype=torch.long)),
             meta=MetaStruct(finished=torch.tensor(True, dtype=torch.bool)),
@@ -252,7 +220,6 @@ def talker2mimi_full_payload(
     flat: list[int] = []
     for frame in frames:
         flat.extend(frame)
-    logger.info(f"[MisoFullPayloadConnector] Flattened {len(flat)} codes")
     transfer_manager.code_prompt_token_ids[rid].clear()
     return OmniPayloadStruct(
         codes=CodesStruct(audio=torch.tensor(flat, dtype=torch.long)),

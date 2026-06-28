@@ -121,12 +121,6 @@ def _build_prompt(
 
     prompt = torch.cat(parts_t, dim=0).long()
     mask = torch.cat(parts_m, dim=0).bool()
-    
-    # Debug logging
-    logger.info(f"[MisoTalker] _build_prompt: prompt shape={prompt.shape}, mask sum={mask.sum().item()}")
-    logger.info(f"[MisoTalker] _build_prompt: prompt sample (first 5, last col)={prompt[:5, -1]}")
-    logger.info(f"[MisoTalker] _build_prompt: mask sample (first 5, last col)={mask[:5, -1]}")
-    
     if prompt.size(0) >= 2048 - max_gen_frames:
         raise ValueError("Miso prompt too long for max_seq_len - max_generation_frames")
     pos = torch.arange(prompt.size(0), device=device).unsqueeze(0).long()
@@ -210,18 +204,15 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
         device = self._device or torch.device("cpu")
         if model is None or tok is None or mimi is None:
             logger.warning("[MisoTalker] Model/tok/mimi not loaded")
-            logger.warning("[MisoTalker] Model/tok/mimi not loaded")
             return None
         text = str(_pick(info, "text", "") or "").strip()
         if not text:
-            logger.warning("[MisoTalker] No text found in info")
             logger.warning("[MisoTalker] No text found in info")
             return None
         ctx = _pick(info, "context", None)
         if ctx is not None and not isinstance(ctx, list):
             ctx = [ctx]
         max_f = max(1, int(_pick(info, "max_generation_frames", _DEFAULT_MAX_FRAMES)))
-        # Only reset caches when creating a new session
         # Only reset caches when creating a new session
         model.reset_caches()
         t, m, p = _build_prompt(
@@ -243,8 +234,6 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
             topk=int(_pick(info, "topk", _DEFAULT_TOPK)),
         )
         self._sessions[key] = s
-        logger.info(f"[MisoTalker] Created new session for key={key}, frames_left={max_f}")
-        logger.info(f"[MisoTalker] Created new session for key={key}, frames_left={max_f}")
         return s
 
     def _step(self, s: _Session) -> tuple[torch.Tensor, bool]:
@@ -254,8 +243,6 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
         frame = model.generate_frame(s.curr_tokens, s.curr_tokens_mask, s.curr_pos, s.temperature, s.topk)
         s.frames_left -= 1
         is_zero_frame = bool((frame == 0).all())
-        logger.info(f"[MisoTalker] Frame values: min={frame.min()}, max={frame.max()}, is_zero={is_zero_frame}, frames_left={s.frames_left}")
-        logger.info(f"[MisoTalker] Frame sample: {frame[0, :5].tolist()}")
         
         # Match official behavior: break immediately on zero frame (EOS)
         # Don't update state after zero frame to prevent garbage generation

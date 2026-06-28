@@ -112,22 +112,16 @@ class MisoTTSMimiDecoder(nn.Module):
         device = self._device or input_ids.device
         sr_tensor = torch.tensor(self._sample_rate, dtype=torch.int32)
         infos = runtime_additional_information or [{}]
-        logger.info(f"[MimiDecoder] Called with {len(infos)} infos, input_ids shape={input_ids.shape if input_ids is not None else 'None'}")
 
         outputs: list[torch.Tensor] = []
         for idx, info in enumerate(infos):
-            logger.info(f"[MimiDecoder] Processing info {idx}, keys={list(info.keys())}")
             if info.get("_is_dummy"):
-                logger.info(f"[MimiDecoder] Info {idx} is dummy, returning empty")
                 outputs.append(torch.zeros(0, dtype=torch.float32))
                 continue
 
             req_id = str(info.get("global_request_id") or info.get("_omni_req_id") or idx)
-            logger.info(f"[MimiDecoder] req_id={req_id}")
             frames = _frames_from_runtime_info(info, input_ids)
-            logger.info(f"[MimiDecoder] frames shape={frames.shape}, numel={frames.numel()}")
             if frames.numel() == 0:
-                logger.warning(f"[MimiDecoder] frames is empty for req_id={req_id}")
                 outputs.append(torch.zeros(0, dtype=torch.float32))
                 continue
 
@@ -143,16 +137,9 @@ class MisoTTSMimiDecoder(nn.Module):
             
             # Only decode when finished (like official implementation)
             if finished:
-                logger.info(f"[MimiDecoder] Decoding: frames shape={frames.shape}")
-                logger.info(f"[MimiDecoder] First frame sample: {frames[0, :5].tolist()}")
-                logger.info(f"[MimiDecoder] Last frame sample: {frames[-1, :5].tolist()}")
-                logger.info(f"[MimiDecoder] Frame value range: min={frames.min()}, max={frames.max()}")
                 # [1, Q, T]
                 codes = frames.transpose(0, 1).unsqueeze(0).to(device=device)
-                logger.info(f"[MimiDecoder] codes shape for decode={codes.shape}")
                 waveform = mimi.decode(codes).squeeze(0).squeeze(0).float()
-                logger.info(f"[MimiDecoder] waveform shape={waveform.shape}, duration={waveform.shape[0]/24000:.2f}s")
-                logger.info(f"[MimiDecoder] waveform range: min={waveform.min():.4f}, max={waveform.max():.4f}")
                 outputs.append(waveform.detach().cpu())
             else:
                 # Return empty until finished
