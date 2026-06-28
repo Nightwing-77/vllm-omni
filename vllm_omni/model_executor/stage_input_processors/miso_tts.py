@@ -205,8 +205,10 @@ def talker2mimi_async_chunk(
     logger.info(f"[MisoAsyncChunk] first frame sample: {window[0][:5] if window else 'N/A'}")
     logger.info(f"[MisoAsyncChunk] last frame sample: {window[-1][:5] if window else 'N/A'}")
     
+    # Fix: Use frame-major order [T*Q] instead of codebook-major [Q*T]
+    # This matches what the decoder expects in _frames_from_runtime_info
     code_tensor = torch.tensor(
-        [window[f][q] for q in range(_MISO_NUM_CODEBOOKS) for f in range(num_frames)],
+        [window[f][q] for f in range(num_frames) for q in range(_MISO_NUM_CODEBOOKS)],
         dtype=torch.long,
     )
     meta = MetaStruct(
