@@ -176,7 +176,6 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
                 else torch.float32
             )
             path = self.model_path or DEFAULT_MISO_TTS_REPO_ID
-            logger.info("Loading Miso TTS from %s", path)
             self._model = load_miso_model_weights(path, device, dtype)
             # Use cache size of 1 like official implementation, and pass dtype
             self._model.setup_caches(1, dtype)
@@ -203,11 +202,9 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
         model, tok, mimi = self._model, self._text_tok, self._mimi_encode
         device = self._device or torch.device("cpu")
         if model is None or tok is None or mimi is None:
-            logger.warning("[MisoTalker] Model/tok/mimi not loaded")
             return None
         text = str(_pick(info, "text", "") or "").strip()
         if not text:
-            logger.warning("[MisoTalker] No text found in info")
             return None
         ctx = _pick(info, "context", None)
         if ctx is not None and not isinstance(ctx, list):
@@ -286,46 +283,29 @@ class MisoTTSTalkerForConditionalGeneration(nn.Module):
             device=self._device,
         )
         if is_dummy_only:
-            logger.info(f"[MisoTalker] Returning dummy output")
-            logger.info(f"[MisoTalker] Returning dummy output")
             self._ar_last_chunk_flags = [True] * len(infos)
             z = torch.zeros(MISO_NUM_CODEBOOKS, dtype=torch.long)
             return OmniOutput(text_hidden_states=hidden, multimodal_outputs={"codes": {"audio": [z] * len(infos)}})
 
         if self._model is None:
-            logger.info(f"[MisoTalker] Loading weights")
-            logger.info(f"[MisoTalker] Loading weights")
             self.load_weights([])
         codes, flags = [], []
         for info in infos:
             if info.get("_is_dummy"):
-                logger.info(f"[MisoTalker] Skipping dummy request")
-                logger.info(f"[MisoTalker] Skipping dummy request")
                 codes.append(torch.zeros(MISO_NUM_CODEBOOKS, dtype=torch.long))
                 flags.append(True)
                 continue
             key = str(info.get("global_request_id") or info.get("_omni_req_id") or id(info))
-            logger.info(f"[MisoTalker] Processing request key={key}")
-            logger.info(f"[MisoTalker] Processing request key={key}")
             sess = self._session(key, info)
             if sess is None:
-                logger.warning(f"[MisoTalker] Session is None for key={key}, returning zeros")
-                logger.warning(f"[MisoTalker] Session is None for key={key}, returning zeros")
                 codes.append(torch.zeros(MISO_NUM_CODEBOOKS, dtype=torch.long))
                 flags.append(True)
                 continue
             fr, done = self._step(sess)
-            logger.info(f"[MisoTalker] Generated frame: shape={fr.shape}, done={done}")
-            logger.info(f"[MisoTalker] Generated frame: shape={fr.shape}, done={done}")
             codes.append(fr.cpu())
             flags.append(done)
             # Don't pop session here - let connector signal when truly finished via runtime info
-            # Don't pop session here - let connector signal when truly finished via runtime info
         self._ar_last_chunk_flags = flags
-        logger.info(f"[MisoTalker] Returning {len(codes)} codes")
-        # Include done flag in multimodal_output so connector knows when to finish
-        return OmniOutput(text_hidden_states=hidden, multimodal_outputs={"codes": {"audio": codes}, "done": flags})
-        logger.info(f"[MisoTalker] Returning {len(codes)} codes")
         # Include done flag in multimodal_output so connector knows when to finish
         return OmniOutput(text_hidden_states=hidden, multimodal_outputs={"codes": {"audio": codes}, "done": flags})
 

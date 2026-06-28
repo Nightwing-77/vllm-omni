@@ -55,7 +55,6 @@ class MisoTTSSingleStageForVLLM(nn.Module):
                 else torch.float32
             )
             path = self.model_path or DEFAULT_MISO_TTS_REPO_ID
-            logger.info("Loading single-stage Miso TTS from %s", path)
             self._model = load_miso_single_stage(path, device, dtype)
         for _ in weights:
             pass
@@ -84,7 +83,6 @@ class MisoTTSSingleStageForVLLM(nn.Module):
         for info in infos:
             text = str(info.get("text", "") or "").strip()
             if not text:
-                logger.warning("[MisoSingleStage] No text found in info")
                 audios.append(torch.zeros(24000, device=self._device))  # 1 second of silence
                 continue
             
@@ -119,7 +117,6 @@ class MisoTTSSingleStageForVLLM(nn.Module):
                 )
                 audios.append(audio)
             except Exception as e:
-                logger.error(f"[MisoSingleStage] Generation failed: {e}")
                 audios.append(torch.zeros(24000, device=self._device))
         
         # Return audio directly - bypass vLLM's token generation

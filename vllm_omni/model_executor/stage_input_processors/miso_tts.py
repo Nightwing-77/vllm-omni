@@ -50,7 +50,6 @@ def talker_preprocess_input(
 ) -> dict[str, Any]:
     """Extract additional_information (text, speaker) into runtime info for talker."""
     if model_intermediate_buffer is None:
-        logger.warning("[MisoTalkerPreprocess] model_intermediate_buffer is None")
         return {}
     
     # Try different possible req_id attribute names
@@ -61,7 +60,6 @@ def talker_preprocess_input(
         req_id = getattr(request, "external_req_id", None)
     
     if req_id is None:
-        logger.warning("[MisoTalkerPreprocess] No req_id found on request")
         return {}
     
     info = model_intermediate_buffer.get(req_id, {})

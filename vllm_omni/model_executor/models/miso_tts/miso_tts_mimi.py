@@ -76,7 +76,6 @@ class MisoTTSMimiDecoder(nn.Module):
         except StopIteration:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._device = device
-        logger.info("Loading Mimi codec for Miso TTS decode stage")
         self._mimi = load_mimi_codec(device, MISO_NUM_CODEBOOKS)
         self._sample_rate = int(self._mimi.sample_rate)
         for _ in weights:

@@ -27,7 +27,6 @@ def patch_bitsandbytes_import_for_unquantized_layers() -> None:
     from moshi.utils import quantize
 
     if not hasattr(quantize, "linear") or not hasattr(quantize, "multi_linear"):
-        logger.debug("Skipping moshi quantize patch (legacy linear API not present)")
         _PATCHED = True
         return
 
