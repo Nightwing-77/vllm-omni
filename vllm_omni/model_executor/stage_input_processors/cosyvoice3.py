@@ -17,10 +17,6 @@ from vllm_omni.data_entry_keys import (
     OmniPayloadStruct,
 )
 from vllm_omni.inputs.data import OmniTokensPrompt
-from vllm_omni.model_executor.stage_input_processors.payload_builder import (
-    ensure_list,
-    to_cpu_tensor,
-)
 from vllm_omni.model_executor.models.cosyvoice3.utils import unpad_prompt_conditioning
 
 logger = init_logger(__name__)
@@ -179,8 +175,6 @@ def talker2code2wav_async_chunk(
                 info = _decode_additional_information(getattr(request, "additional_information", None))
                 info_embed = info.get("embed", {}) if isinstance(info, dict) else {}
                 prompt_payload = {}
-                for key in ("speech_token", "speech_feat", "embedding"):
-                    value = to_cpu_tensor(info_embed.get(key))
                 cond_keys = ("speech_token", "speech_feat", "embedding", "speech_token_len")
                 for key in cond_keys:
                     value = _to_cpu_tensor(info_embed.get(key))
@@ -193,7 +187,6 @@ def talker2code2wav_async_chunk(
                     for key in cond_keys:
                         if key in prompt_payload:
                             continue
-                        value = to_cpu_tensor(po_embed.get(key))
                         value = _to_cpu_tensor(mm_embed.get(key))
                         if value is not None:
                             prompt_payload[key] = value

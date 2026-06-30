@@ -391,9 +391,7 @@ class AsyncOmniEngine:
             for client in self.stage_clients
         ]
         supported_tasks: set[str] = set()
-        if any(getattr(client, "is_comprehension", False) for client in self.stage_clients) or any(
-            getattr(client, "stage_type", None) == "llm" for client in self.stage_clients
-        ):
+        if any(getattr(client, "is_comprehension", False) for client in self.stage_clients):
             supported_tasks.add("generate")
         if any(meta.final_output_type == "audio" for meta in self.stage_metadata):
             supported_tasks.add("speech")
@@ -1029,6 +1027,7 @@ class AsyncOmniEngine:
             **({"diffusion_attention_config": attention_config} if attention_config is not None else {}),
             "force_cutlass_fp8": bool(kwargs.get("force_cutlass_fp8", False)),
             "enable_diffusion_pipeline_profiler": kwargs.get("enable_diffusion_pipeline_profiler", False),
+            "streaming_output": kwargs.get("diffusion_streaming_output", False),
             "enable_ar_profiler": kwargs.get("enable_ar_profiler", False),
             "extras": {
                 "auxiliary_text_encoder": kwargs.get("auxiliary_text_encoder", None),

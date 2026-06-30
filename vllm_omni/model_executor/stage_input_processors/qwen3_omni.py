@@ -265,7 +265,7 @@ def _construct_thinker2talker_streaming_input_async_chunk(
     request_id = request.external_req_id
     output_token_ids = request.output_token_ids
     # Convert ConstantList to regular list for OmniSerializer serialization
-    output_token_ids = ensure_list(output_token_ids)
+    output_token_ids = _ensure_list(output_token_ids)
     speaker = extract_speaker_from_request(request)
     language = extract_language_from_request(request)
     finished = torch.tensor(is_finished, dtype=torch.bool)
@@ -282,8 +282,8 @@ def _construct_thinker2talker_streaming_input_async_chunk(
                 embed=EmbeddingsStruct(prefill=emb_cpu),
                 hidden_states=HiddenStatesStruct(output=hid_cpu),
                 ids=IdsStruct(
-                    all=ensure_list(request.all_token_ids[-new_prompt_len - 1 :]),
-                    prompt=ensure_list(request.prompt_token_ids[-new_prompt_len:]),
+                    all=_ensure_list(request.all_token_ids[-new_prompt_len - 1 :]),
+                    prompt=_ensure_list(request.prompt_token_ids[-new_prompt_len:]),
                 ),
                 speaker=speaker,
                 language=language,

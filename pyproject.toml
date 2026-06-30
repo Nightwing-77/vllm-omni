@@ -40,6 +40,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
+    "websockets>=15.0.1",
     "datasets>=2.14.0",
     "mypy==1.11.1",
     "pre-commit==4.0.1",
@@ -76,6 +77,10 @@ demo = [
     "cn2an>=0.5.22",  # Chinese number normalization for TTS (e.g. "1次" -> "一次")
 ]
 
+forced-aligner = [
+    "qwen-asr>=0.0.6",  # faithful Japanese/Korean word segmentation for the TTS forced aligner
+]
+
 # Local-test-only extras
 local = [
     "FlagEmbedding",
@@ -99,12 +104,27 @@ quack = [
     "quack-kernels>=0.3.11",
 ]
 
-# Optional dependencies for Miso TTS model
+# Optional runtime dependencies for the MiniCPM-o 4.5 talker pipeline.
+# The talker loads MiniCPMTTS via `trust_remote_code` from the model repo,
+# and that module performs `from stepaudio2 import Token2wav` against the
+# MiniCPM-o-flavored Token2wav vocoder (PyPI: `stepaudio2-minicpmo`, NOT
+# upstream `stepfun-ai/Step-Audio2` — the upstream signature rejects
+# `n_timesteps` and crashes at construction). A clean `vllm-omni` install
+# does not pull this in by default to avoid forcing the dep onto users
+# who only need other models; opt in with `pip install vllm-omni[minicpmo]`.
+minicpmo = [
+    "stepaudio2-minicpmo",
+]
+
+# Optional Blackwell-only fused-bias FP8 GEMM; package is `quack-kernels` (imported
+# as `quack`), not the unrelated `quack`. See docs/user_guide/quantization/fp8.md.
+quack = [
+    "quack-kernels>=0.3.11",
+]
 miso_tts = [
     "torchao>=0.6.0",
     "torchtune>=0.3.0",
 ]
-
 docs = [
     "mkdocs>=1.5.0",
     "mkdocs-api-autonav",
@@ -120,6 +140,12 @@ docs = [
     "pydantic",
 ]
 
+soulx-svs = [
+    "funasr>=1.0.0",
+    "g2pM>=0.1.2.5",
+    "g2p-en>=2.1.0",
+    "ToJyutping>=3.2.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/vllm-project/vllm-omni"
@@ -310,3 +336,6 @@ CANN = "CANN"
 thi = "thi"
 ND = "ND"
 byt5 = "byt5"
+# "seeked" is the standard HTML media element DOM event name (fires when a
+# seek completes), used by the word-timestamps Gradio demo. Not a typo.
+seeked = "seeked"

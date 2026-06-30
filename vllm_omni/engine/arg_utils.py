@@ -20,10 +20,10 @@ logger = init_logger(__name__)
 _ARCH_TO_MODEL_TYPE: dict[str, str] = {
     "CosyVoice3Model": "cosyvoice3",
     "GLMTTSForConditionalGeneration": "glm_tts",
+    "IndexTTS2S2MelDecoder": "indextts2",
+    "IndexTTS2TalkerForConditionalGeneration": "indextts2",
     "OmniVoiceModel": "omnivoice",
     "VoxCPM2TalkerForConditionalGeneration": "voxcpm2",
-    "MisoTTSTalkerForConditionalGeneration": "miso_tts",
-    "MisoTTSMimiDecoder": "miso_tts",
 }
 
 # Maps model architecture names to tokenizer subfolder paths within HF repos.
@@ -37,13 +37,22 @@ def _register_omni_hf_configs() -> None:
     try:
         from transformers import AutoConfig
 
-        from vllm_omni.model_executor.models.ming_tts.config_ming_tts import MingDenseConfig
+        from vllm_omni.model_executor.models.indextts2.configuration_indextts2 import (
+            IndexTTS2Config,
+        )
+        from vllm_omni.model_executor.models.ming_tts.config_ming_tts import (
+            MingDenseConfig,
+            MingMoeConfig,
+        )
+        from vllm_omni.model_executor.models.moss_tts.configuration_moss_tts import (
+            MossTTSLocalConfig,
+            MossTTSRealtimeConfig,
+        )
         from vllm_omni.model_executor.models.qwen3_tts.configuration_qwen3_tts import (
             Qwen3TTSConfig,
         )
         from vllm_omni.transformers_utils.configs.cosyvoice3 import CosyVoice3Config
         from vllm_omni.transformers_utils.configs.glm_tts import GLMTTSConfig
-        from vllm_omni.transformers_utils.configs.miso_tts import MisoTTSConfig
         from vllm_omni.transformers_utils.configs.omnivoice import OmniVoiceConfig
         from vllm_omni.transformers_utils.configs.voxcpm2 import VoxCPM2Config
     except Exception as exc:  # pragma: no cover - best-effort optional registration
@@ -60,12 +69,15 @@ def _register_omni_hf_configs() -> None:
 
     for model_type, config_cls in [
         ("dense", MingDenseConfig),
+        ("bailingmm", MingMoeConfig),
+        ("indextts2", IndexTTS2Config),
+        ("moss_tts_local", MossTTSLocalConfig),
+        ("moss_tts_realtime", MossTTSRealtimeConfig),
         ("qwen3_tts", Qwen3TTSConfig),
         ("cosyvoice3", CosyVoice3Config),
         ("glm_tts", GLMTTSConfig),
         ("omnivoice", OmniVoiceConfig),
         ("voxcpm2", VoxCPM2Config),
-        ("miso_tts", MisoTTSConfig),
     ]:
         try:
             AutoConfig.register(model_type, config_cls)
