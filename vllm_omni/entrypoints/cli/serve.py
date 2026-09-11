@@ -216,6 +216,29 @@ class OmniServeCommand(CLISubcommand):
             help="Default task type for TTS models (CustomVoice, VoiceDesign, or Base). "
             "If not specified, will be inferred from model path.",
         )
+        # Forced aligner / word timestamps. --forced-aligner is the opt-in
+        # toggle; heavier knobs (gpu_memory_utilization, dtype, max_model_len)
+        # live in the deploy YAML passed via --forced-aligner-config.
+        omni_config_group.add_argument(
+            "--forced-aligner",
+            type=str,
+            default=None,
+            help=(
+                "Enable streaming TTS word timestamps via a forced aligner. "
+                "Pass the aligner model path/name, e.g. 'Qwen/Qwen3-ForcedAligner-0.6B'. "
+                "Disabled when omitted."
+            ),
+        )
+        omni_config_group.add_argument(
+            "--forced-aligner-config",
+            type=str,
+            default=None,
+            help=(
+                "Optional YAML file for forced aligner settings (model, runner, "
+                "gpu_memory_utilization, dtype, max_model_len). The --forced-aligner "
+                "flag, when set, overrides the YAML model field."
+            ),
+        )
         # TODO(@lishunyang12): deprecate once all models migrate to --deploy-config
         omni_config_group.add_argument(
             "--stage-configs-path",
@@ -230,6 +253,15 @@ class OmniServeCommand(CLISubcommand):
             default=None,
             help="Path to a deploy config YAML (new format with stages/engine_args). "
             "Mutually exclusive with --stage-configs-path.",
+        )
+        omni_config_group.add_argument(
+            "--strategy-config",
+            type=str,
+            default=None,
+            help="Path to a composable-parallel strategy.yaml. Only applies to "
+            "registry-based models (e.g. qwen2_5_omni): its derived parallel sizing "
+            "is overlaid onto the registry-merged stages before per-stage engine "
+            "args are built.",
         )
         omni_config_group.add_argument(
             "--stage-overrides",
@@ -446,7 +478,7 @@ class OmniServeCommand(CLISubcommand):
             default=None,
             help=(
                 "JSON string for diffusion quantization_config. "
-                'Example: \'{"method":"gguf","gguf_model":"/path/to/model.gguf"}\'.'
+                'Example: \'{"method":"fp8","activation_scheme":"dynamic"}\'.'
             ),
         )
         omni_config_group.add_argument(
@@ -533,6 +565,14 @@ class OmniServeCommand(CLISubcommand):
             action="store_true",
             help="Enable per-step diffusion execution so running requests can be aborted between denoise steps.",
         )
+        omni_config_group.add_argument(
+            "--request-batch-max-wait-ms",
+            type=float,
+            default=0.0,
+            help="Request-mode batch admission: max milliseconds to wait for compatible "
+            "requests to accumulate before scheduling a fused forward wave. "
+            "0 disables admission (default).",
+        )
 
         # VAE memory optimization parameters
         omni_config_group.add_argument(
@@ -572,7 +612,6 @@ class OmniServeCommand(CLISubcommand):
             action="store_true",
             help="Enable layerwise (blockwise) offloading on DiT modules.",
         )
-
         # Video model parameters (e.g., Wan2.2) - engine-level
         omni_config_group.add_argument(
             "--boundary-ratio",
@@ -622,6 +661,18 @@ class OmniServeCommand(CLISubcommand):
             "Distributes VAE decode workload across multiple ranks by splitting the latent spatially. "
             "Equivalent to setting DiffusionParallelConfig.vae_patch_parallel_size.",
         )
+        omni_config_group.add_argument(
+            "--vae-parallel-mode",
+            type=str,
+            default="tile",
+            choices=["tile", "spatial_shard_height", "spatial_shard_width"],
+            help="VAE parallel decode strategy for diffusion models. "
+            "'tile' (default) uses patch/tile parallel decode; "
+            "'spatial_shard_height'/'spatial_shard_width' use spatially-sharded decode that splits "
+            "decoder feature maps along height/width and exchanges halo regions. The "
+            "'spatial_shard_*' modes require vae_patch_parallel_size to match the DiT group size. "
+            "Equivalent to setting DiffusionParallelConfig.vae_parallel_mode.",
+        )
 
         # Default sampling parameters
         omni_config_group.add_argument(
@@ -638,6 +689,14 @@ class OmniServeCommand(CLISubcommand):
             default=7680 * 4320,  # 8K resolution
             type=int,
             help="Maximum generated image size in pixels (height * width).",
+        )
+        # Diffusion model (mainly video generation models) streaming output mode
+        omni_config_group.add_argument(
+            "--diffusion-streaming-output",
+            dest="diffusion_streaming_output",
+            action="store_true",
+            default=False,
+            help="Enable chunked streaming output for diffusion (mainly video generation) models that support it.",
         )
 
         # TTS-specific parameters
@@ -667,6 +726,11 @@ class OmniServeCommand(CLISubcommand):
             "--enable-ar-profiler",
             action="store_true",
             help="Enable AR stage profiler to include AR stage timing in stage_durations.",
+        )
+        omni_config_group.add_argument(
+            "--enable-orch-monitor",
+            action="store_true",
+            help="Enable orchestrator window monitor and write a JSON log at shutdown.",
         )
 
         # Supplementary auxiliary text encoder parameters
@@ -711,7 +775,10 @@ def run_headless(args: TrackingNamespace) -> None:
         load_omni_transfer_config_for_model,
         prepare_engine_environment,
     )
-    from vllm_omni.entrypoints.utils import load_and_resolve_stage_configs
+    from vllm_omni.entrypoints.utils import (
+        load_and_resolve_stage_configs,
+        parse_stage_overrides,
+    )
 
     model = args.model
     stage_id: int | None = args.stage_id
@@ -747,11 +814,18 @@ def run_headless(args: TrackingNamespace) -> None:
             args.replica_id,
         )
 
-    config_path, stage_configs = load_and_resolve_stage_configs(
+    # Parse --stage-overrides (raw JSON string) exactly like the standard
+    # engine path (AsyncOmniEngine._resolve_stage_configs) so headless and
+    # standard launches resolve to the same per-stage device layout.
+    stage_overrides = parse_stage_overrides(args_dict.get("stage_overrides"))
+
+    config_path, stage_configs, _ = load_and_resolve_stage_configs(
         model,
         stage_configs_path,
         args_dict,
         deploy_config_path=args_dict.get("deploy_config"),
+        stage_overrides=stage_overrides,
+        strategy_config_path=args_dict.get("strategy_config"),
     )
 
     # Locate the stage config that matches stage_id.
